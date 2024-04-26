@@ -56,15 +56,15 @@ pub fn rust_main() -> ! {
         stext as usize,
         etext as usize
     );
-    info!(
+    error!(
         "[kernel] .rodata [{:#x}, {:#x})",
         srodata as usize, erodata as usize
     );
-    info!(
+    warn!(
         "[kernel] .data [{:#x}, {:#x})",
         sdata as usize, edata as usize
     );
-    info!(
+    debug!(
         "[kernel] boot_stack top=bottom={:#x}, lower_bound={:#x}",
         boot_stack_top as usize, boot_stack_lower_bound as usize
     );
