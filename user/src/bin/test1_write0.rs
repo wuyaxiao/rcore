@@ -36,6 +36,7 @@ pub fn main() -> i32 {
         -1
     );
     let (bottom, top) = unsafe { stack_range() };
+    println!("bottom{}  top{}",bottom,top);
     assert_eq!(
         write(STDOUT, unsafe {
             slice::from_raw_parts((top - 5) as *const _, 10)
