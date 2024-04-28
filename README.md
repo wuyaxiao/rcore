@@ -253,3 +253,4 @@ Here are the updates since 3.5.0:
 
 We will add them later.
 # 7869
+# 7869
