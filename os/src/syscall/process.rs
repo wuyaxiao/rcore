@@ -2,17 +2,23 @@
 use crate::{
     config::MAX_SYSCALL_NUM,
     task::{
-        change_program_brk, exit_current_and_run_next, suspend_current_and_run_next, TaskStatus,
+        change_program_brk, exit_current_and_run_next, suspend_current_and_run_next, TaskStatus,get_current_status,get_syscall_times,get_current_start_time,current_user_token,mmap,munmap
     },
+    timer::get_time_us,
 };
-
+use crate::{
+mm::{VirtAddr,PageTable,PhysAddr},
+};
+use crate::mm::MemorySet;
+use crate::config::PAGE_SIZE;
+use crate::mm::MapPermission;
+use crate::mm::VPNRange;
 #[repr(C)]
 #[derive(Debug)]
 pub struct TimeVal {
     pub sec: usize,
     pub usec: usize,
 }
-
 /// Task information
 #[allow(dead_code)]
 pub struct TaskInfo {
@@ -23,7 +29,14 @@ pub struct TaskInfo {
     /// Total running time of task
     time: usize,
 }
-
+pub fn current_translated_physical_address(ptr:*const u8)->usize{//将虚拟地址转换为物理地址
+        let token = current_user_token();
+	let page_table=PageTable::from_token(token);//根据token找pagetable
+	let mut va=VirtAddr::from(ptr as usize);//从虚拟地址中提取出一级地址，二级地址，三级地址
+	let mut vpn = va.floor();//va->virt page num
+	let ppn = page_table.translate(vpn).unwrap().ppn();//ppn
+	PhysAddr::from(ppn).0+va.page_offset()//物理地址
+}
 /// task exits and submit an exit code
 pub fn sys_exit(_exit_code: i32) -> ! {
     trace!("kernel: sys_exit");
@@ -38,50 +51,41 @@ pub fn sys_yield() -> isize {
     0
 }
 
-/// YOUR JOB: get time with second and microsecond
-/// HINT: You might reimplement it with virtual memory management.
-/// HINT: What if [`TimeVal`] is splitted by two pages ?
-pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
-    let us = get_time_us();
-    let dst_vec = translated_byte_buffer(
-        current_user_token(),
-        ts as *const u8, core::mem::size_of::<TimeVal>()
-    );
-    let ref time_val = TimeVal {
-            sec: us / 1_000_000,
-            usec: us % 1_000_000,
-    };
-    let src_ptr = time_val as *const TimeVal;
-    for (idx, dst) in dst_vec.into_iter().enumerate() {
-        let unit_len = dst.len();
-        unsafe {
-            dst.copy_from_slice(core::slice::from_raw_parts(
-                src_ptr.wrapping_byte_add(idx * unit_len) as *const u8,
-                unit_len)
-            );
-        }
+pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
+    let _us = get_time_us();
+    let ts=current_translated_physical_address(_ts as *const u8) as *mut TimeVal;
+    unsafe {
+        *ts = TimeVal {
+            sec: _us / 1_000_000,
+            usec: _us % 1_000_000,
+        };
     }
     0
 }
 
-/// YOUR JOB: Finish sys_task_info to pass testcases
-/// HINT: You might reimplement it with virtual memory management.
-/// HINT: What if [`TaskInfo`] is splitted by two pages ?
-pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
-    trace!("kernel: sys_task_info NOT IMPLEMENTED YET!");
-    -1
+pub fn sys_task_info(ti: *mut TaskInfo) -> isize {
+    let _ti = current_translated_physical_address(ti as *const u8) as *mut TaskInfo;
+    trace!("kernel: sys_task_info");
+    unsafe{
+        *_ti = TaskInfo {
+            status: get_current_status(),
+            syscall_times: get_syscall_times(),
+            time:(get_time_us()-get_current_start_time())/1000
+        };
+    }
+    0
 }
 
+
 // YOUR JOB: Implement mmap.
-pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
-    trace!("kernel: sys_mmap NOT IMPLEMENTED YET!");
-    -1
+pub fn sys_mmap(_start: usize, len: usize, port: usize) -> isize {
+    	mmap(_start, len, port)
 }
 
 // YOUR JOB: Implement munmap.
 pub fn sys_munmap(_start: usize, _len: usize) -> isize {
     trace!("kernel: sys_munmap NOT IMPLEMENTED YET!");
-    -1
+    munmap(_start, _len)
 }
 /// change data segment size
 pub fn sys_sbrk(size: i32) -> isize {

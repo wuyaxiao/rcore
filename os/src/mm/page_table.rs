@@ -42,6 +42,7 @@ impl PageTableEntry {
     pub fn ppn(&self) -> PhysPageNum {
         (self.bits >> 10 & ((1usize << 44) - 1)).into()
     }
+    ///提取L（PPN+FLAGS）中的PPN（右移十位后保留低44位）
     /// Get the flags from the page table entry
     pub fn flags(&self) -> PTEFlags {
         PTEFlags::from_bits(self.bits as u8).unwrap()
@@ -66,8 +67,8 @@ impl PageTableEntry {
 
 /// page table structure
 pub struct PageTable {
-    root_ppn: PhysPageNum,
-    frames: Vec<FrameTracker>,
+    pub root_ppn: PhysPageNum,
+    pub frames: Vec<FrameTracker>,
 }
 
 /// Assume that it won't oom when creating/mapping.
@@ -88,7 +89,7 @@ impl PageTable {
         }
     }
     /// Find PageTableEntry by VirtPageNum, create a frame for a 4KB page table if not exist
-    fn find_pte_create(&mut self, vpn: VirtPageNum) -> Option<&mut PageTableEntry> {
+    pub fn find_pte_create(&mut self, vpn: VirtPageNum) -> Option<&mut PageTableEntry> {
         let idxs = vpn.indexes();
         let mut ppn = self.root_ppn;
         let mut result: Option<&mut PageTableEntry> = None;
@@ -108,7 +109,7 @@ impl PageTable {
         result
     }
     /// Find PageTableEntry by VirtPageNum
-    fn find_pte(&self, vpn: VirtPageNum) -> Option<&mut PageTableEntry> {
+    pub fn find_pte(&self, vpn: VirtPageNum) -> Option<&mut PageTableEntry> {
         let idxs = vpn.indexes();
         let mut ppn = self.root_ppn;
         let mut result: Option<&mut PageTableEntry> = None;
@@ -148,13 +149,13 @@ impl PageTable {
         8usize << 60 | self.root_ppn.0
     }
 }
-
+///通过页表将一个指向 u8 类型的指针数组（长度为 len）转换并复制到一个可变的 u8 类型的 Vec 中find_ptr
 /// Translate&Copy a ptr[u8] array with LENGTH len to a mutable u8 Vec through page table
 pub fn translated_byte_buffer(token: usize, ptr: *const u8, len: usize) -> Vec<&'static mut [u8]> {
-    let page_table = PageTable::from_token(token);
+    let page_table = PageTable::from_token(token);//page_table
     let mut start = ptr as usize;
-    let end = start + len;
-    let mut v = Vec::new();
+    let end = start + len;//ptr:[len]
+    let mut v = Vec::new();//frame v
     while start < end {
         let start_va = VirtAddr::from(start);
         let mut vpn = start_va.floor();

@@ -8,14 +8,17 @@
 //!
 //! Be careful when you see `__switch` ASM function in `switch.S`. Control flow around this function
 //! might not be what you expect.
-
+use crate::mm::VirtPageNum;
 mod context;
 mod switch;
 #[allow(clippy::module_inception)]
 mod task;
-
+use crate::mm::PageTableEntry;
+use crate::config::MAX_SYSCALL_NUM;
 use crate::loader::{get_app_data, get_num_app};
+
 use crate::sync::UPSafeCell;
+use crate::timer::get_time_us;
 use crate::trap::TrapContext;
 use alloc::vec::Vec;
 use lazy_static::*;
@@ -35,22 +38,21 @@ pub use context::TaskContext;
 /// existing functions on `TaskManager`.
 pub struct TaskManager {
     /// total number of tasks
-    num_app: usize,
+    pub num_app: usize,
     /// use inner value to get mutable access
-    inner: UPSafeCell<TaskManagerInner>,
+    pub inner: UPSafeCell<TaskManagerInner>,
 }
 
 /// The task manager inner in 'UPSafeCell'
 struct TaskManagerInner {
     /// task list
-    tasks: Vec<TaskControlBlock>,
+    pub tasks: Vec<TaskControlBlock>,
     /// id of current `Running` task
-    current_task: usize,
+    pub current_task: usize,
 }
-
 lazy_static! {
     /// a `TaskManager` global instance through lazy_static!
-    pub static ref TASK_MANAGER: TaskManager = {
+    static ref TASK_MANAGER: TaskManager = ({
         println!("init TASK_MANAGER");
         let num_app = get_num_app();
         println!("num_app = {}", num_app);
@@ -67,10 +69,45 @@ lazy_static! {
                 })
             },
         }
-    };
+    });
 }
 
 impl TaskManager {
+    fn mmap(&self, start: usize, len: usize, port: usize) -> isize {
+        let mut inner = self.inner.exclusive_access();
+        let current_task = inner.current_task;
+        inner.tasks[current_task].memory_set.mmap(start, len, port)
+    }
+
+    fn munmap(&self, start: usize, len: usize) -> isize {
+        let mut inner = self.inner.exclusive_access();
+        let current_task = inner.current_task;
+        inner.tasks[current_task].memory_set.munmap(start, len)
+    }
+pub fn get_syscall_times(&self)->[u32;500]{
+	let inner=self.inner.exclusive_access();
+	let current=inner.current_task;
+	//println!("test：{}",inner.tasks[current].syscall_times[169]);
+	inner.tasks[current].syscall_times
+}
+/// update_syscall_times
+pub fn update_syscall_times(&self,syscall_id: usize) {
+    let mut inner = self.inner.exclusive_access();
+    let current = inner.current_task;
+    inner.tasks[current].syscall_times[syscall_id] += 1;
+    let num=inner.tasks[current].syscall_times[syscall_id];
+    //println!("syscall {}:{}",syscall_id,num);
+}
+pub fn get_current_start_time(&self)->usize{
+	let inner=self.inner.exclusive_access();
+	let current=inner.current_task;
+	inner.tasks[current].start_time
+}
+pub fn get_current_status(&self)->TaskStatus{
+	let inner=self.inner.exclusive_access();
+	let current=inner.current_task;
+	inner.tasks[current].task_status
+}
     /// Run the first task in task list.
     ///
     /// Generally, the first task in task list is an idle task (we call it zero process later).
@@ -140,6 +177,9 @@ impl TaskManager {
             let mut inner = self.inner.exclusive_access();
             let current = inner.current_task;
             inner.tasks[next].task_status = TaskStatus::Running;
+            if inner.tasks[next].start_time == 0{
+        	inner.tasks[next].start_time = get_time_us();
+            }
             inner.current_task = next;
             let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
             let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
@@ -197,8 +237,31 @@ pub fn current_user_token() -> usize {
 pub fn current_trap_cx() -> &'static mut TrapContext {
     TASK_MANAGER.get_current_trap_cx()
 }
-
+pub fn get_current_task_page_table(vpn: VirtPageNum) -> Option<PageTableEntry> {
+    let inner = TASK_MANAGER.inner.exclusive_access();
+    let current = inner.current_task;
+    inner.tasks[current].memory_set.translate(vpn)
+}
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+pub fn get_syscall_times()->[u32;500]{
+	TASK_MANAGER.get_syscall_times()
+}
+/// update_syscall_times
+pub fn update_syscall_times(syscall_id: usize) {
+    TASK_MANAGER.update_syscall_times(syscall_id);
+}
+pub fn get_current_start_time()->usize{
+	TASK_MANAGER.get_current_start_time()
+}
+pub fn get_current_status()->TaskStatus{
+	TASK_MANAGER.get_current_status()
+}
+pub fn mmap(start: usize, len: usize, port: usize) -> isize {
+        TASK_MANAGER.mmap(start, len, port)
+}
+pub fn munmap(start: usize, len: usize) -> isize {
+        TASK_MANAGER.munmap(start, len)
 }
