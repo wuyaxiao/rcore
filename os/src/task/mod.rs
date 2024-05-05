@@ -8,7 +8,7 @@
 //!
 //! Be careful when you see `__switch` ASM function in `switch.S`. Control flow around this function
 //! might not be what you expect.
-
+use crate::timer::get_time_us;
 mod context;
 mod switch;
 #[allow(clippy::module_inception)]
