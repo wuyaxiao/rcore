@@ -227,6 +227,6 @@ pub fn sys_set_priority(_prio: isize) -> isize {
     if _prio < 2 {
         return -1;
     }
-    current_task().unwrap().inner_exclusive_access().pro_lev = _prio as usize;
+    current_task().unwrap().inner_exclusive_access().pro_lev = _prio as usize;//设置priority
     _prio
 }

@@ -20,7 +20,7 @@ mod processor;
 mod switch;
 #[allow(clippy::module_inception)]
 mod task;
-
+use crate::config::BIG_STRIDE;
 use crate::{config::MAX_SYSCALL_NUM, loader::get_app_data_by_name};
 use alloc::sync::Arc;
 use lazy_static::*;
@@ -46,6 +46,7 @@ pub fn suspend_current_and_run_next() {
     let task_cx_ptr = &mut task_inner.task_cx as *mut TaskContext;
     // Change status to Ready
     task_inner.task_status = TaskStatus::Ready;
+    task_inner.cur_stride = task_inner.cur_stride + BIG_STRIDE / task_inner.pro_lev;
     drop(task_inner);
     // ---- release current PCB
 

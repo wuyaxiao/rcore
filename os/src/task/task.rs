@@ -204,6 +204,7 @@ impl TaskControlBlock {
         inner.trap_cx_ppn = trap_cx_ppn;
         // initialize base_size
         inner.base_size = user_sp;
+        inner.pro_lev=16;
         // initialize trap_cx
         let trap_cx = inner.get_trap_cx();
         *trap_cx = TrapContext::app_init_context(
@@ -247,7 +248,8 @@ impl TaskControlBlock {
                     program_brk: parent_inner.program_brk,
                     sys_call_times: parent_inner.sys_call_times.clone(),
                     sys_call_begin: 0,
-                    cur_stride: 0,
+                    //cur_stride: 0,
+                    cur_stride: parent_inner.cur_stride,
                     pro_lev: parent_inner.pro_lev,
                 })
             },
