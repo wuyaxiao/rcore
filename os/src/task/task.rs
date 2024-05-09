@@ -1,15 +1,17 @@
 //! Types related to task management & Functions for completely changing TCB
 use super::TaskContext;
 use super::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
-use crate::config::TRAP_CONTEXT_BASE;
-use crate::config::{BIG_STRIDE, MAX_SYSCALL_NUM};
+use crate::config::{TRAP_CONTEXT, MAX_SYSCALL_NUM};
 use crate::mm::{MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE};
 use crate::sync::UPSafeCell;
 use crate::trap::{trap_handler, TrapContext};
 use alloc::sync::{Arc, Weak};
 use alloc::vec::Vec;
 use core::cell::RefMut;
-
+use crate::timer::get_time_us;
+use crate::config::TRAP_CONTEXT_BASE;
+use crate::task::current_task;
+use crate::syscall::TaskInfo;
 /// Task control block structure
 ///
 /// Directly save the contents that will not change during running
@@ -35,22 +37,14 @@ impl TaskControlBlock {
         let inner = self.inner_exclusive_access();
         inner.memory_set.token()
     }
-
-    /// update_stride
-    pub fn update_stride(&self) {
-        let mut var = self.inner_exclusive_access();
-        var.cur_stride += BIG_STRIDE / var.pro_lev;
-    }
 }
 
 pub struct TaskControlBlockInner {
     /// The physical page number of the frame where the trap context is placed
-    /// 应用地址空间中的 Trap 上下文被放在的物理页帧的物理页号
     pub trap_cx_ppn: PhysPageNum,
 
     /// Application data can only appear in areas
     /// where the application address space is lower than base_size
-    /// 应用数据仅有可能出现在应用地址空间低于 base_size 字节的区域中
     pub base_size: usize,
 
     /// Save task context
@@ -64,7 +58,6 @@ pub struct TaskControlBlockInner {
 
     /// Parent process of the current process.
     /// Weak will not affect the reference count of the parent
-    /// 使用 Weak 而非 Arc 来包裹另一个任务控制块，因此这个智能指针将不会影响父进程的引用计数。
     pub parent: Option<Weak<TaskControlBlock>>,
 
     /// A vector containing TCBs of all child processes of the current process
@@ -78,21 +71,16 @@ pub struct TaskControlBlockInner {
 
     /// Program break
     pub program_brk: usize,
-
-    /// syscall time count
-    pub sys_call_times: [u32; MAX_SYSCALL_NUM],
-
-    /// begen time
-    pub sys_call_begin: usize,
-
-    /// 当前 stride
-    pub cur_stride: usize,
-
-    /// 优先级等级
-    pub pro_lev: usize,
+    pub task_start_time: usize,
+    pub task_syscall_times: [u32; MAX_SYSCALL_NUM],
+    pub stride: u8,
+    pub priority: u8,
 }
 
 impl TaskControlBlockInner {
+    pub fn set_syscall_times(&mut self,id: usize) {
+        self.task_syscall_times[id]+=1;
+}
     /// get the trap context
     pub fn get_trap_cx(&self) -> &'static mut TrapContext {
         self.trap_cx_ppn.get_mut()
@@ -107,39 +95,21 @@ impl TaskControlBlockInner {
     pub fn is_zombie(&self) -> bool {
         self.get_status() == TaskStatus::Zombie
     }
-
-    pub fn increase_sys_call(&mut self, sys_id: usize) {
-        self.sys_call_times[sys_id] += 1;
-        if sys_id == 64 {
-            debug!(
-                "increase sys_call_times of SYSCALL_WRITE:{}",
-                self.sys_call_times[sys_id]
-            );
-        }
-    }
-
-    pub fn get_sys_call_times(&self) -> [u32; MAX_SYSCALL_NUM] {
-        self.sys_call_times.clone()
-    }
-
-    pub fn get_task_run_times(&self) -> usize {
-        self.sys_call_begin
-    }
-
-    pub fn mmap(&mut self, start: usize, len: usize, port: usize) -> isize {
-        self.memory_set.mmap(start, len, port)
-    }
-
-    pub fn munmap(&mut self, start: usize, len: usize) -> isize {
-        self.memory_set.unmmap(start, len)
-    }
 }
 
 impl TaskControlBlock {
+   pub fn mmap(&self, start: usize, len: usize, port: usize) -> isize {
+        let mut inner = self.inner.exclusive_access();
+        inner.memory_set.mmap(start, len, port)
+    }
+
+    pub fn munmap(&self, start: usize, len: usize) -> isize {
+        let mut inner = self.inner.exclusive_access();
+        inner.memory_set.munmap(start, len)
+    }
     /// Create a new process
     ///
     /// At present, it is only used for the creation of initproc
-    /// 目前仅用于内核中手动创建唯一一个初始进程 initproc
     pub fn new(elf_data: &[u8]) -> Self {
         // memory_set with elf program headers/trampoline/trap context/user stack
         let (memory_set, user_sp, entry_point) = MemorySet::from_elf(elf_data);
@@ -167,10 +137,10 @@ impl TaskControlBlock {
                     exit_code: 0,
                     heap_bottom: user_sp,
                     program_brk: user_sp,
-                    sys_call_times: [0; MAX_SYSCALL_NUM],
-                    sys_call_begin: 0,
-                    cur_stride: 0,
-                    pro_lev: 16,
+                    task_start_time: 0,
+                    task_syscall_times: [0; MAX_SYSCALL_NUM],
+                    stride: 0,
+                    priority: 16,
                 })
             },
         };
@@ -198,13 +168,11 @@ impl TaskControlBlock {
         // **** access current TCB exclusively
         let mut inner = self.inner_exclusive_access();
         // substitute memory_set
-        // 原有地址空间生命周期结束，里面包含的全部物理页帧都会被回收；
         inner.memory_set = memory_set;
         // update trap_cx ppn
         inner.trap_cx_ppn = trap_cx_ppn;
         // initialize base_size
         inner.base_size = user_sp;
-        inner.pro_lev=16;
         // initialize trap_cx
         let trap_cx = inner.get_trap_cx();
         *trap_cx = TrapContext::app_init_context(
@@ -246,11 +214,11 @@ impl TaskControlBlock {
                     exit_code: 0,
                     heap_bottom: parent_inner.heap_bottom,
                     program_brk: parent_inner.program_brk,
-                    sys_call_times: parent_inner.sys_call_times.clone(),
-                    sys_call_begin: 0,
-                    //cur_stride: 0,
-                    cur_stride: parent_inner.cur_stride,
-                    pro_lev: parent_inner.pro_lev,
+                    task_start_time: 0,
+                    //task_syscall_times: parent_inner.task_syscall_times,
+                    task_syscall_times: [0; MAX_SYSCALL_NUM],
+                    stride: parent_inner.stride,
+                    priority: parent_inner.priority,
                 })
             },
         });
@@ -296,8 +264,16 @@ impl TaskControlBlock {
             None
         }
     }
+        pub fn get_current_task_info(&self, task_info: &mut TaskInfo) {
+        let inner = self.inner_exclusive_access();
+        task_info.status = inner.task_status;
+        task_info.syscall_times = inner.task_syscall_times;
+        let us = get_time_us() - inner.task_start_time;
+        let sec = us / 1_000_000;
+    	let usec = us % 1_000_000;
+	task_info.time = (sec & 0xffff) * 1000 + usec / 1000;//us->ms
+    }
 }
-
 #[derive(Copy, Clone, PartialEq)]
 /// task status: UnInit, Ready, Running, Exited
 pub enum TaskStatus {

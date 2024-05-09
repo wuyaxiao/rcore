@@ -18,10 +18,10 @@ pub const MAX_SYSCALL_NUM: usize = 500;
 /// the virtual addr of trapoline
 pub const TRAMPOLINE: usize = usize::MAX - PAGE_SIZE + 1;
 /// the virtual addr of trap context
+pub const TRAP_CONTEXT: usize = TRAMPOLINE - PAGE_SIZE;
+/// the virtual addr of trap context
 pub const TRAP_CONTEXT_BASE: usize = TRAMPOLINE - PAGE_SIZE;
 /// clock frequency
 pub const CLOCK_FREQ: usize = 12500000;
 /// the physical memory end
 pub const MEMORY_END: usize = 0x88000000;
-/// BigStride
-pub const BIG_STRIDE: usize = 65536;

@@ -34,16 +34,54 @@ lazy_static! {
 pub struct MemorySet {
     page_table: PageTable,
     areas: Vec<MapArea>,
-    map_tree: BTreeMap<VirtPageNum, FrameTracker>,
 }
 
 impl MemorySet {
+     pub fn mmap(&mut self,start:usize,len:usize,port:usize)->isize{
+    	let vpnrange = VPNRange::new(VirtAddr::from(start).floor(),VirtAddr::from(start+len).ceil());
+    	for vpn in vpnrange{
+    		if let Some(pte) = self.page_table.find_pte(vpn){
+    			if pte.is_valid(){
+    				return -1;
+    			}
+    		}
+    	}
+    	let mut map_prem = MapPermission::U;
+    	if (port & 1)!=0{
+    		map_prem|=MapPermission::R;
+    	}
+    	if (port & 2)!=0{
+    		map_prem|=MapPermission::W;
+    	}
+    	if (port & 4)!=0{
+    		map_prem|=MapPermission::X;
+    	}
+    	println!("start_va:{:#x}~end_va:{:#x} map_prem:{:#X}",start,start+len,map_prem);
+    	self.insert_framed_area(VirtAddr::from(start),VirtAddr::from(start+len),map_prem);
+    	0
+    }
+    pub fn munmap(&mut self,start:usize,len:usize)->isize{
+    	let vpnrange = VPNRange::new(VirtAddr::from(start).floor(),VirtAddr::from(start+len).ceil());
+    	for vpn in vpnrange{
+    		let pte = self.page_table.find_pte(vpn);
+    		if pte.is_none() || !pte.unwrap().is_valid(){
+    			return -1;
+    		}
+    	}
+    	for vpn in vpnrange{
+    		for area in &mut self.areas{
+    			if vpn < area.vpn_range.get_end() && vpn >= area.vpn_range.get_start(){
+    				area.unmap_one(&mut self.page_table,vpn);
+    			}
+    		}
+    	}
+    	0
+    }
     /// Create a new empty `MemorySet`.
     pub fn new_bare() -> Self {
         Self {
             page_table: PageTable::new(),
             areas: Vec::new(),
-            map_tree: BTreeMap::new(),
         }
     }
     /// Get the page table token
@@ -239,8 +277,6 @@ impl MemorySet {
     pub fn from_existed_user(user_space: &Self) -> Self {
         let mut memory_set = Self::new_bare();
         // map trampoline
-        // 解析 ELF 创建地址空间的时候，并没有将跳板页作为一个单独的逻辑段插入到地址空间的逻辑段向量 areas 中
-        // 所以这里需要单独映射上。
         memory_set.map_trampoline();
         // copy data sections/trap_context/user_stack
         for area in user_space.areas.iter() {
@@ -303,86 +339,6 @@ impl MemorySet {
         } else {
             false
         }
-    }
-
-    /// mmap
-    pub fn mmap(&mut self, start: usize, len: usize, port: usize) -> isize {
-        let va_start: VirtAddr = start.into();
-        if !va_start.aligned() {
-            debug!("unmap fail don't aligned");
-            return -1;
-        }
-        let mut va_start: VirtPageNum = va_start.into();
-
-        let mut flags = PTEFlags::from_bits(port as u8).unwrap();
-        if port & 0b0000_0001 != 0 {
-            flags |= PTEFlags::R;
-        }
-
-        if port & 0b0000_0010 != 0 {
-            flags |= PTEFlags::W;
-        }
-
-        if port & 0b0000_0100 != 0 {
-            flags |= PTEFlags::X;
-        }
-        flags |= PTEFlags::U;
-        flags |= PTEFlags::V;
-
-        let va_end: VirtAddr = (start + len).into();
-        let va_end: VirtPageNum = va_end.ceil();
-
-        // println!(
-        //     "start = {:x} && va_star = {} && va_end = {}",
-        //     start, va_start.0, va_end.0
-        // );
-
-        while va_start != va_end {
-            // println!("map va_start = {}", va_start.0);
-            if let Some(pte) = self.page_table.translate(va_start) {
-                if pte.is_valid() {
-                    // println!("mmap found exit va_start {}", va_start.0);
-                    return -1;
-                }
-            }
-            if let Some(ppn) = frame_alloc() {
-                self.page_table.map(va_start, ppn.ppn, flags);
-                self.map_tree.insert(va_start, ppn);
-            } else {
-                return -1;
-            }
-            va_start.step();
-        }
-        0
-    }
-
-    /// unmap
-    pub fn unmmap(&mut self, start: usize, len: usize) -> isize {
-        let va_start: VirtAddr = start.into();
-        if !va_start.aligned() {
-            debug!("unmap fail don't aligned");
-            return -1;
-        }
-        let mut va_start: VirtPageNum = va_start.into();
-
-        let va_end: VirtAddr = (start + len).into();
-        let va_end: VirtPageNum = va_end.ceil();
-
-        while va_start != va_end {
-            // println!("unmap va_start = {}", va_start.0);
-            if let Some(item) = self.page_table.translate(va_start) {
-                if !item.is_valid() {
-                    debug!("unmap on no map vpn");
-                    return -1;
-                }
-            } else {
-                return -1;
-            }
-            self.page_table.unmap(va_start);
-            self.map_tree.remove(&va_start);
-            va_start.step();
-        }
-        0
     }
 }
 /// map area structure, controls a contiguous piece of virtual memory

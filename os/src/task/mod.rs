@@ -3,7 +3,7 @@
 //! Everything about task management, like starting and switching tasks is
 //! implemented here.
 //!
-//! A single global instance of [`TaskManager`] called `PROCESSOR` controls
+//! A single global instance of [`TaskManager`] called `TASK_MANAGER` controls
 //! all the tasks in the whole operating system.
 //!
 //! A single global instance of [`Processor`] called `PROCESSOR` monitors running
@@ -20,8 +20,8 @@ mod processor;
 mod switch;
 #[allow(clippy::module_inception)]
 mod task;
-use crate::config::BIG_STRIDE;
-use crate::{config::MAX_SYSCALL_NUM, loader::get_app_data_by_name};
+use crate::syscall::TaskInfo;
+use crate::loader::get_app_data_by_name;
 use alloc::sync::Arc;
 use lazy_static::*;
 pub use manager::{fetch_task, TaskManager};
@@ -35,7 +35,6 @@ pub use processor::{
     current_task, current_trap_cx, current_user_token, run_tasks, schedule, take_current_task,
     Processor,
 };
-
 /// Suspend the current 'Running' task and run the next task in task list.
 pub fn suspend_current_and_run_next() {
     // There must be an application running.
@@ -46,7 +45,6 @@ pub fn suspend_current_and_run_next() {
     let task_cx_ptr = &mut task_inner.task_cx as *mut TaskContext;
     // Change status to Ready
     task_inner.task_status = TaskStatus::Ready;
-    task_inner.cur_stride = task_inner.cur_stride + BIG_STRIDE / task_inner.pro_lev;
     drop(task_inner);
     // ---- release current PCB
 
@@ -62,8 +60,6 @@ pub const IDLE_PID: usize = 0;
 /// Exit the current 'Running' task and run the next task in task list.
 pub fn exit_current_and_run_next(exit_code: i32) {
     // take from Processor
-    // 调用 take_current_task 来将当前进程控制块从处理器监控 PROCESSOR 中取出，而不只是得到一份拷贝，
-    // 这是为了正确维护进程控制块的引用计数；
     let task = take_current_task().unwrap();
 
     let pid = task.getpid();
@@ -120,42 +116,16 @@ pub fn add_initproc() {
     add_task(INITPROC.clone());
 }
 
-/// Increase the sys call count
-pub fn increase_sys_call(sys_id: usize) {
-    current_task()
-        .unwrap()
-        .inner_exclusive_access()
-        .increase_sys_call(sys_id)
+pub fn get_current_task_info(task_info: &mut TaskInfo) {
+    current_task().unwrap().get_current_task_info(task_info);
 }
-
-/// return the sys count array of the current task
-pub fn get_sys_call_times() -> [u32; MAX_SYSCALL_NUM] {
-    current_task()
-        .unwrap()
-        .inner_exclusive_access()
-        .get_sys_call_times()
+pub fn incr_syscall_times(syscall_id: usize) {
+    let task = current_task().unwrap();
+    task.inner_exclusive_access().set_syscall_times(syscall_id);
 }
-
-/// return the sys count array of the current task
-pub fn get_task_run_times() -> usize {
-    current_task()
-        .unwrap()
-        .inner_exclusive_access()
-        .get_task_run_times()
+pub fn mmap(start: usize, len: usize, port: usize) -> isize {
+        current_task().unwrap().mmap(start, len, port)
 }
-
-/// select_cur_task_to_mmap
-pub fn select_cur_task_to_mmap(start: usize, len: usize, port: usize) -> isize {
-    current_task()
-        .unwrap()
-        .inner_exclusive_access()
-        .mmap(start, len, port)
-}
-
-/// select_cur_task_to_mmap
-pub fn select_cur_task_to_munmap(start: usize, len: usize) -> isize {
-    current_task()
-        .unwrap()
-        .inner_exclusive_access()
-        .munmap(start, len)
+pub fn munmap(start: usize, len: usize) -> isize {
+        current_task().unwrap().munmap(start, len)
 }
