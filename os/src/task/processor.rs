@@ -12,6 +12,8 @@ use crate::trap::TrapContext;
 use alloc::sync::Arc;
 use lazy_static::*;
 use crate::timer::get_time_us;
+use crate::task::BIG_STRIDE;
+
 /// Processor management structure
 pub struct Processor {
     ///The task currently executing on the current processor

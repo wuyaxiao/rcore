@@ -20,6 +20,7 @@ mod processor;
 mod switch;
 #[allow(clippy::module_inception)]
 mod task;
+use crate::config::BIG_STRIDE;
 use crate::syscall::TaskInfo;
 use crate::loader::get_app_data_by_name;
 use alloc::sync::Arc;

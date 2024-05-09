@@ -24,7 +24,7 @@ pub struct TaskControlBlock {
     pub kernel_stack: KernelStack,
 
     /// Mutable
-    inner: UPSafeCell<TaskControlBlockInner>,
+    pub inner: UPSafeCell<TaskControlBlockInner>,
 }
 
 impl TaskControlBlock {
@@ -73,8 +73,8 @@ pub struct TaskControlBlockInner {
     pub program_brk: usize,
     pub task_start_time: usize,
     pub task_syscall_times: [u32; MAX_SYSCALL_NUM],
-    pub stride: u8,
-    pub priority: u8,
+    pub stride: usize,
+    pub priority: usize,
 }
 
 impl TaskControlBlockInner {
@@ -174,6 +174,7 @@ impl TaskControlBlock {
         // initialize base_size
         inner.base_size = user_sp;
         // initialize trap_cx
+        inner.priority=16;
         let trap_cx = inner.get_trap_cx();
         *trap_cx = TrapContext::app_init_context(
             entry_point,

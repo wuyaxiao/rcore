@@ -144,7 +144,7 @@ pub fn sys_set_priority(_prio: isize) -> isize {
         return -1;
     }
     let task = current_task().unwrap();
-    task.inner_exclusive_access().priority = _prio as u8;
+    task.inner_exclusive_access().priority = _prio as usize;
     _prio
 }
 
@@ -175,6 +175,25 @@ pub fn sys_spawn(_path: *const u8) -> isize {
         "kernel:pid[{}] sys_spawn NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
+    let current_task = current_task();//current_task() 函数用于获取当前任务（进程）的信息
+    if current_task.is_none() {
+        return -1;
+    }
+
+    let current_task = current_task.unwrap();
+
+    let mut current_inner = current_task.inner_exclusive_access();
+
+    let token = current_inner.memory_set.token();//通过获取当前任务的内部访问权限，获取当前任务的内存设置的令牌（token）。//current_task->current_inner->memory_set->token
+    let path = translated_str(token, _path);//将传入的路径 _path 转换为字符串形式
+    if let Some(data) = get_app_data_by_name(path.as_str()) {
+        let child_block = Arc::new(TaskControlBlock::new(data));
+        let mut child_inner = child_block.inner_exclusive_access();
+        child_inner.parent = Some(Arc::downgrade(&current_task));
+        current_inner.children.push(child_block.clone());//建立进程之间的父子关系
+        add_task(child_block.clone());//把子任务推入到就绪队列中
+        return child_block.pid.0 as isize;
+    }
     -1
 }
 

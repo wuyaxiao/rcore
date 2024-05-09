@@ -11,7 +11,7 @@ use alloc::vec::Vec;
 use core::arch::asm;
 use lazy_static::*;
 use riscv::register::satp;
-
+use crate::config::MAXVA;
 extern "C" {
     fn stext();
     fn etext();
@@ -37,7 +37,13 @@ pub struct MemorySet {
 }
 
 impl MemorySet {
-     pub fn mmap(&mut self,start:usize,len:usize,port:usize)->isize{
+      pub fn mmap(&mut self,start:usize,len:usize,port:usize)->isize{
+        if start % PAGE_SIZE != 0 /* start need to be page aligned */ || 
+        port & !0x7 != 0 /* other bits of port needs to be zero */ ||
+        port & 0x7 ==0 /* No permission set, meaningless */ ||
+        start >= MAXVA /* mapping range should be an legal address */ {
+        	return -1;
+    	}
     	let vpnrange = VPNRange::new(VirtAddr::from(start).floor(),VirtAddr::from(start+len).ceil());
     	for vpn in vpnrange{
     		if let Some(pte) = self.page_table.find_pte(vpn){
@@ -56,11 +62,12 @@ impl MemorySet {
     	if (port & 4)!=0{
     		map_prem|=MapPermission::X;
     	}
-    	println!("start_va:{:#x}~end_va:{:#x} map_prem:{:#X}",start,start+len,map_prem);
+    	//println!("start_va:{:#x}~end_va:{:#x} map_prem:{:#X}",start,start+len,map_prem);
     	self.insert_framed_area(VirtAddr::from(start),VirtAddr::from(start+len),map_prem);
     	0
     }
     pub fn munmap(&mut self,start:usize,len:usize)->isize{
+        if start >= MAXVA || start % PAGE_SIZE != 0 {return -1;}
     	let vpnrange = VPNRange::new(VirtAddr::from(start).floor(),VirtAddr::from(start+len).ceil());
     	for vpn in vpnrange{
     		let pte = self.page_table.find_pte(vpn);

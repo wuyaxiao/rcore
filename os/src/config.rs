@@ -1,7 +1,7 @@
 //! Constants in the kernel
 
 #[allow(unused)]
-
+pub const MAXVA: usize = usize::MAX;
 /// user app's stack size
 pub const USER_STACK_SIZE: usize = 4096 * 2;
 /// kernel stack size
@@ -25,3 +25,5 @@ pub const TRAP_CONTEXT_BASE: usize = TRAMPOLINE - PAGE_SIZE;
 pub const CLOCK_FREQ: usize = 12500000;
 /// the physical memory end
 pub const MEMORY_END: usize = 0x88000000;
+/// BigStride
+pub const BIG_STRIDE: usize = 65535;
