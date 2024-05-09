@@ -1,0 +1,10 @@
+oslab@oslab-virtual-machine:~/rCore-Tutorial-Code-2023A/os$ git checkout ch5
+README.md: needs merge
+os/Makefile: needs merge
+os/src/mm/mod.rs: needs merge
+os/src/syscall/mod.rs: needs merge
+os/src/syscall/process.rs: needs merge
+os/src/task/mod.rs: needs merge
+os/src/task/task.rs: needs merge
+error: you need to resolve your current index first
+

@@ -1,7 +1,7 @@
 //! Constants in the kernel
 
 #[allow(unused)]
-
+pub const MAXVA: usize = usize::MAX;
 /// user app's stack size
 pub const USER_STACK_SIZE: usize = 4096 * 2;
 /// kernel stack size
